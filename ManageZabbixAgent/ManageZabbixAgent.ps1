@@ -679,7 +679,7 @@ function Update-ZabbixAgent {
         Write-LogEntry -Message "Updating Zabbix $AgentType..." -Level 'INFO'
         
         # MSI arguments - use existing config file
-        $arguments = "/L*v `"$env:TEMP\zabbix_${AgentType}_update.log`" /i `"$InstallerPath`" /qn ENABLEPATH=1 CONF=`"$ConfigFilePath`""
+        $arguments = "/L*v `"$env:TEMP\zabbix_${AgentType}_update.log`" /i `"$InstallerPath`" /qn ENABLEPATH=1 NONMSICONFNAME=`"$ConfigFilePath`""
         
         if ($PSCmdlet.ShouldProcess("msiexec.exe $arguments", "Update Zabbix $AgentType")) {
             # Start update process
@@ -1187,26 +1187,8 @@ try {
                     
                     if (Get-ZabbixInstaller -InstallerUrl $installerUrl -InstallerPath $global:InstallerPath) {
                         try {
-                            # Stop service before update
-                            if ($PSCmdlet.ShouldProcess($service.Name, 'Stop service')) {
-                                Write-LogEntry -Message "Stopping service $($service.Name) for update..." -Level 'INFO'
-                                Stop-Service -Name $service.Name -Force
-                                
-                                # Wait for service to stop completely
-                                Wait-ForServiceState -ServiceName $service.Name -DesiredState 'Stopped' -TimeoutSeconds 60
-                            }
-                            
                             if (Update-ZabbixAgent -InstallerPath $global:InstallerPath -ConfigFilePath $serviceDetails.ConfigFilePath -AgentType $serviceDetails.AgentType) {
                                 Write-LogEntry -Message 'Agent updated successfully' -Level 'SUCCESS'
-                                
-                                # Start service after update
-                                if ($PSCmdlet.ShouldProcess($service.Name, 'Start service')) {
-                                    Write-LogEntry -Message "Starting service $($service.Name) after update..." -Level 'INFO'
-                                    Start-Service -Name $service.Name
-                                    
-                                    # Wait for service to start
-                                    Wait-ForServiceState -ServiceName $service.Name -DesiredState 'Running' -TimeoutSeconds 60
-                                }
                                 
                                 $runChecks = $true  # Re-run checks after update
                             }
