@@ -191,7 +191,7 @@ function Send-EmailReport {
     $mailMessage = New-Object System.Net.Mail.MailMessage
     $mailMessage.IsBodyHtml = $true
     $mailMessage.From = $SenderEmail
-    $mailMessage.To.Add($RecipientEmail)
+    $mailMessage.To.Add($To)
     if ($IsDataChanged) {
         $mailMessage.Subject = "Q$Quarter PingCastle Report (Changes present!)"
         # build a sumarized change display
@@ -236,7 +236,7 @@ function Send-EmailReport {
         #$smtpClient.Credentials = New-Object System.Net.NetworkCredential($smtpUser, $smtpPassword)
 
         $smtpClient.Send($mailMessage)
-        Write-Host "Email sent with report to $RecipientEmail"
+        Write-Host "Report emailed to $To"
     }
     catch {
         Write-Error "Failed to send email: $_"
