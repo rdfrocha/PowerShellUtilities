@@ -54,12 +54,13 @@ param(
 function Get-MailboxDetails {
     param([object]$Mailbox)
 
-    Write-Host "Processing $($Mailbox.DisplayName)"
+    #Write-Host "Processing $($Mailbox.DisplayName)"
 
     # Get mailbox statistics
     try {
         $mailboxStats = Get-MailboxStatistics -Identity $Mailbox.UserPrincipalName -ErrorAction Stop
-    } catch {
+    }
+    catch {
         Write-Host "Error getting mailbox statistics for $($Mailbox.DisplayName)"
         return $null
     }
@@ -78,7 +79,8 @@ function Get-MailboxDetails {
     try {
         $user = Get-User -Identity $Mailbox.UserPrincipalName -ErrorAction Stop
         $manager = if ($null -eq $user.Manager) { 'None' } else { $user.Manager }
-    } catch {
+    }
+    catch {
         $manager = 'None'
     }
 
@@ -86,10 +88,11 @@ function Get-MailboxDetails {
     try {
         $permissionsArray = Get-MailboxPermission -Identity $Mailbox.UserPrincipalName |
             Where-Object { $_.User -notlike 'NT AUTHORITY\SELF' -and $_.AccessRights -contains 'FullAccess' } |
-            Select-Object -ExpandProperty User -First 3
+                Select-Object -ExpandProperty User -First 3
         $permissions = ($permissionsArray -join ', ')
         if (-not $permissions) { $permissions = 'None' }
-    } catch {
+    }
+    catch {
         $permissions = 'None|Error'
     }
 
@@ -97,16 +100,65 @@ function Get-MailboxDetails {
     try {
         $lastMessage = Get-MailboxFolderStatistics -Identity $Mailbox.UserPrincipalName -IncludeOldestAndNewestItems |
             Sort-Object -Property Date -Descending |
-            Select-Object -ExpandProperty Date -First 1
+                Select-Object -ExpandProperty Date -First 1
         $lastMessageDate = if ($null -eq $lastMessage) { 'None' } else { $lastMessage }
-    } catch {
-        $lastMessageDate = 'None'
+    }
+    catch {
+        $lastMessageDate = 'None|Error'
     }
 
-    # Return mailbox details object
+    # Get forwards on the mailbox
+    try {
+        $server = $mailbox.ForwardingSMTPAddress
+        if ($server) { $server = [string]$server }  # coerce to string safely
+
+        $ruleRecipients = @()
+
+        $rules = Get-InboxRule -Mailbox $Mailbox -ErrorAction SilentlyContinue |
+            Where-Object { $_.ForwardTo -or $_.ForwardAsAttachmentTo -or $_.RedirectTo }
+
+        foreach ($r in $rules) {
+            foreach ($t in @('ForwardTo', 'RedirectTo', 'ForwardAsAttachmentTo')) {
+                $recips = $r.$t
+                if ($recips) {
+                    foreach ($recip in $recips) {
+                        # Normalize recipient display to something useful (SMTP if available)
+                        $asText = if ($recip -is [string]) {
+                            $recip
+                        }
+                        elseif ($recip.PSObject.Properties.Match('Address').Count) {
+                            $recip.Address
+                        }
+                        elseif ($recip.PSObject.Properties.Match('PrimarySmtpAddress').Count) {
+                            $recip.PrimarySmtpAddress
+                        }
+                        elseif ($recip.PSObject.Properties.Match('Name').Count) {
+                            $recip.Name
+                        }
+                        else {
+                            [string]$recip
+                        }
+                        $ruleRecipients += "$t :`t$asText"
+                    }
+                }
+            }
+        }
+
+        $forwardSummary =
+        if (-not $server -and -not $ruleRecipients) { 'None' }
+        elseif ($server -and -not $ruleRecipients) { "Server:`t$server" }
+        elseif (-not $server -and $ruleRecipients) { ($ruleRecipients -join '; ') }
+        else { "Server:`t$server; " + ($ruleRecipients -join '; ') }
+
+    }
+    catch {
+        $forwardSummary = 'None|Error'
+    }
+
     [PSCustomObject]@{
         MailboxName         = $Mailbox.DisplayName
         MailboxEmailAddress = $Mailbox.PrimarySmtpAddress
+        ForwardingAddress   = $forwardSummary
         LastLogon           = $lastLogonTime
         LastMessageTime     = $lastMessageDate
         Manager             = $manager
@@ -128,24 +180,42 @@ function Export-MailboxDetails {
 }
 
 # Main script logic
+Clear-Host
 $StartTime = Get-Date
 # Connect-ExchangeOnline
 
-Write-Host "Getting shared mailboxes..."
-$sharedMailboxes = Get-EXOMailbox -ResultSize Unlimited -RecipientTypeDetails SharedMailbox
+# set ProgressPreference for this session
+$ProgressPreference = 'Continue'
 
-Write-Host "Total Mailboxes: $($sharedMailboxes.Count)"
-$mailboxDetails = @()
+Write-Host 'Getting shared mailboxes...'
+$sharedMailboxes = Get-EXOMailbox -ResultSize Unlimited -RecipientTypeDetails SharedMailbox -Properties DisplayName, UserPrincipalName, PrimarySmtpAddress, ForwardingSMTPAddress
+
 $i = 0
+$TotalItems = $sharedMailboxes.Count
+$mailboxDetails = @()
 
-foreach ($mailbox in $sharedMailboxes) {
+foreach ($mailbox in ($sharedMailboxes | Select-Object -First 50)) {
+    # Calculate elapsed time
+    $ElapsedTime = ((Get-Date) - $StartTime).TotalSeconds
+    $StillToDo = $TotalItems - $i
+    $avgItemTime = $ElapsedTime / $i
+
+    $i++
+    if ($i -eq 1 ) {
+        Write-Progress -Activity 'Processing shared mailboxes' -Status "$($Mailbox.DisplayName) - Mailbox $i of $TotalItems" -PercentComplete (($i / $TotalItems) * 100)
+    }
+    else {
+        Write-Progress -Activity 'Processing shared mailboxes' -Status "$($Mailbox.DisplayName) - Mailbox $i of $TotalItems" -PercentComplete (($i / $TotalItems) * 100) -SecondsRemaining ($StillToDo * $avgItemTime)
+    }
+
     $details = Get-MailboxDetails -Mailbox $mailbox
     if ($details) {
         $mailboxDetails += $details
     }
-    $i++
-    Write-Host "Done $i of $($sharedMailboxes.Count)"
 }
+
+# Clear the progress bar when done
+Write-Progress -Activity 'Processing shared mailboxes' -Completed
 
 Export-MailboxDetails -Details $mailboxDetails -Path $ExportPath -Sort:($SortBySize.IsPresent)
 Write-Host "Exported to $ExportPath"
@@ -154,4 +224,4 @@ Write-Host "Exported to $ExportPath"
 
 $EndTime = Get-Date
 $executionTime = New-TimeSpan -Start $StartTime -End $EndTime
-Write-Host ("Script Execution time: {0:hh\:mm\:ss}" -f $executionTime)
+Write-Host ('Script Execution time: {0:hh\:mm\:ss}' -f $executionTime)
