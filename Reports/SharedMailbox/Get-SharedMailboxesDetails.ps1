@@ -199,7 +199,7 @@ $i = 0
 $TotalItems = $sharedMailboxes.Count
 $mailboxDetails = @()
 
-foreach ($mailbox in ($sharedMailboxes | Select-Object -First 50)) {
+foreach ($mailbox in $sharedMailboxes) {
     # Calculate elapsed time
     $ElapsedTime = ((Get-Date) - $StartTime).TotalSeconds
     $StillToDo = $TotalItems - $i
