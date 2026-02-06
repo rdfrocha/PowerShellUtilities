@@ -1,60 +1,64 @@
 <#
 .SYNOPSIS
-Exports details of shared mailboxes in an Exchange Online environment to a CSV file.
+Retrieves detailed information about shared mailboxes in Exchange Online and exports the data to a CSV file.
 
 .DESCRIPTION
-This script connects to Exchange Online, retrieves all shared mailboxes, and gathers detailed information about each mailbox, including:
-- Display name
-- Primary SMTP address
-- Last logon time
-- Last message time
-- Manager
-- Users with FullAccess permissions (up to 3)
-- Mailbox size in GB
+This script connects to Exchange Online and collects comprehensive details about shared mailboxes, including:
+- Mailbox size and statistics
+- Last logon and message times
+- Manager information
+- Full access permissions
+- Forwarding rules and addresses
 
-The collected data is exported to a CSV file, with an option to sort the mailboxes by size.
+The results are exported to a CSV file with optional sorting by mailbox size.
 
 .PARAMETER ExportPath
-Specifies the file path where the CSV file will be saved. Defaults to "SharedMailboxes.csv" in the script's directory.
+The file path where the CSV export will be saved. Defaults to "SharedMailboxes.csv" in the script root directory.
+Type: [string]
+Default: "$PSScriptRoot\SharedMailboxes.csv"
 
 .PARAMETER SortBySize
-If specified, sorts the mailboxes by size in descending order before exporting to the CSV file.
+Switch parameter to sort the exported results by mailbox size in descending order.
+Type: [switch]
+Default: $false
 
-.FUNCTION Get-MailboxDetails
-Retrieves detailed information about a single mailbox, including:
-- Display name
-- Primary SMTP address
-- Last logon time
-- Last message time
-- Manager
-- Users with FullAccess permissions (up to 3)
-- Mailbox size in GB
-
-.FUNCTION Export-MailboxDetails
-Exports the collected mailbox details to a CSV file. Optionally sorts the data by mailbox size.
+.PARAMETER Subset
+Limits the number of shared mailboxes to process. When set to 0 (default), all mailboxes are processed.
+Type: [int]
+Default: 0
 
 .EXAMPLE
-.\SharedMailboxes.ps1 -ExportPath "C:\Exports\SharedMailboxes.csv" -SortBySize
+.\Get-SharedMailboxesDetails.ps1 -ExportPath "C:\Reports\Mailboxes.csv" -SortBySize
 
-Connects to Exchange Online, retrieves shared mailboxes, gathers their details, sorts them by size, and exports the data to "C:\Exports\SharedMailboxes.csv".
+.EXAMPLE
+.\Get-SharedMailboxesDetails.ps1 -Subset 10
 
 .NOTES
-- Requires the Exchange Online PowerShell module.
-- Ensure you have the necessary permissions to access mailbox details.
-- Uncomment the Connect-ExchangeOnline and Disconnect-ExchangeOnline lines to enable connection management.
-- For automation scenarios, an Auth function can be added.
+Requires:
+- Exchange Online PowerShell module (EXO v2+)
+- Connection to Exchange Online before running the script (Connect-ExchangeOnline)
+- Appropriate permissions to query mailbox statistics and permissions
 
+.OUTPUTS
+Output CSV Columns:
+- MailboxName: Display name of the shared mailbox
+- MailboxEmailAddress: Primary SMTP address
+- ForwardingAddress: Server forwards and inbox rule redirects
+- LastLogon: Date of last user logon
+- LastMessageTime: Date of most recent message
+- Manager: Mailbox manager (if available)
+- FullAccessFirst3: First 3 users with full access permissions
+- MailboxSizeGB: Total mailbox size in gigabytes
 #>
 
 param(
     [string]$ExportPath = "$PSScriptRoot\SharedMailboxes.csv",
-    [switch]$SortBySize = $false
+    [switch]$SortBySize = $false,
+    [int]$Subset = 0
 )
 
 function Get-MailboxDetails {
     param([object]$Mailbox)
-
-    #Write-Host "Processing $($Mailbox.DisplayName)"
 
     # Get mailbox statistics
     try {
@@ -195,6 +199,11 @@ $PSStyle.Progress.View = 'Classic'
 Write-Host 'Getting shared mailboxes...'
 $sharedMailboxes = Get-EXOMailbox -ResultSize Unlimited -RecipientTypeDetails SharedMailbox -Properties DisplayName, UserPrincipalName, PrimarySmtpAddress, ForwardingSMTPAddress
 
+# Apply subset filter if specified
+if ($Subset -gt 0) {
+    $sharedMailboxes = $sharedMailboxes | Select-Object -First $Subset
+}
+
 $i = 0
 $TotalItems = $sharedMailboxes.Count
 $mailboxDetails = @()
@@ -227,10 +236,10 @@ Write-Host "Exported to $ExportPath"
 
 #Disconnect-ExchangeOnline -Confirm:$false
 
-$EndTime = Get-Date
-$executionTime = New-TimeSpan -Start $StartTime -End $EndTime
-Write-Host ('Script Execution time: {0:hh\:mm\:ss}' -f $executionTime)
-
 # Reset Progress preferences
 $ProgressPreference = $OriginalProgPref
 $PSStyle.Progress.View = $OriginalProgView
+
+$EndTime = Get-Date
+$executionTime = New-TimeSpan -Start $StartTime -End $EndTime
+Write-Host ('Script Execution time: {0:hh\:mm\:ss}' -f $executionTime)
