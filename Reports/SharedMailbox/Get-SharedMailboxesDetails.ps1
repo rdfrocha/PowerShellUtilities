@@ -184,8 +184,13 @@ Clear-Host
 $StartTime = Get-Date
 # Connect-ExchangeOnline
 
-# set ProgressPreference for this session
+# Get current Progress preferences, so we can reset them at the end
+$OriginalProgView = $PSStyle.Progress.View
+$OriginalProgPref = $ProgressPreference
+
+# Set Progress preferences for this session
 $ProgressPreference = 'Continue'
+$PSStyle.Progress.View = 'Classic'
 
 Write-Host 'Getting shared mailboxes...'
 $sharedMailboxes = Get-EXOMailbox -ResultSize Unlimited -RecipientTypeDetails SharedMailbox -Properties DisplayName, UserPrincipalName, PrimarySmtpAddress, ForwardingSMTPAddress
@@ -225,3 +230,7 @@ Write-Host "Exported to $ExportPath"
 $EndTime = Get-Date
 $executionTime = New-TimeSpan -Start $StartTime -End $EndTime
 Write-Host ('Script Execution time: {0:hh\:mm\:ss}' -f $executionTime)
+
+# Reset Progress preferences
+$ProgressPreference = $OriginalProgPref
+$PSStyle.Progress.View = $OriginalProgView
