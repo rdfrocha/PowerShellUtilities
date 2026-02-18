@@ -39,16 +39,19 @@ Requires:
 - Connection to Exchange Online before running the script (Connect-ExchangeOnline)
 - Appropriate permissions to query mailbox statistics and permissions
 
+Error handling is implemented for each query operation. Failed operations return 'None|Error' or 'None' to allow processing to continue.
+
 .OUTPUTS
-Output CSV Columns:
-- MailboxName: Display name of the shared mailbox
+[PSCustomObject] with the following properties:
+- MailboxName: Display name of the mailbox
 - MailboxEmailAddress: Primary SMTP address
-- ForwardingAddress: Server forwards and inbox rule redirects
-- LastLogon: Date of last user logon
-- LastMessageTime: Date of most recent message
-- Manager: Mailbox manager (if available)
-- FullAccessFirst3: First 3 users with full access permissions
-- MailboxSizeGB: Total mailbox size in gigabytes
+- ForwardingAddress: Concatenated string of server forwards and inbox rule redirects
+- LastLogon: Last logon timestamp or 'None'
+- LastSentMessageTime: Most recent date in Sent Items or 'None'
+- LastReceivedMessageTime: Most recent date in Inbox or 'None'
+- Manager: Manager distinguished name or 'None'
+- FullAccessFirst3: First 3 users with FullAccess permissions or 'None'
+- MailboxSizeGB: Total mailbox size rounded to 2 decimal places
 #>
 
 param(
@@ -62,7 +65,7 @@ function Get-MailboxDetails {
 
     # Get mailbox statistics
     try {
-        $mailboxStats = Get-MailboxStatistics -Identity $Mailbox.UserPrincipalName -ErrorAction Stop
+        $mailboxStats = Get-EXOMailboxStatistics -Identity $Mailbox.UserPrincipalName -ErrorAction Stop
     }
     catch {
         Write-Host "Error getting mailbox statistics for $($Mailbox.DisplayName)"
@@ -90,25 +93,35 @@ function Get-MailboxDetails {
 
     # Get mailbox permissions (first 3 users with FullAccess)
     try {
-        $permissionsArray = Get-MailboxPermission -Identity $Mailbox.UserPrincipalName |
-            Where-Object { $_.User -notlike 'NT AUTHORITY\SELF' -and $_.AccessRights -contains 'FullAccess' } |
-                Select-Object -ExpandProperty User -First 3
-        $permissions = ($permissionsArray -join ', ')
+        $permissionsArray = Get-EXOMailboxPermission -Identity $Mailbox.UserPrincipalName |
+            Where-Object { $_.User -notlike 'NT AUTHORITY\SELF' -and $_.AccessRights -contains 'FullAccess' }
+        $permissions = (($permissionsArray.User | Select-Object -First 3) -join ', ')
         if (-not $permissions) { $permissions = 'None' }
     }
     catch {
         $permissions = 'None|Error'
     }
 
-    # Get last message time
+    # Get newest item in sent
     try {
-        $lastMessage = Get-MailboxFolderStatistics -Identity $Mailbox.UserPrincipalName -IncludeOldestAndNewestItems |
-            Sort-Object -Property Date -Descending |
-                Select-Object -ExpandProperty Date -First 1
-        $lastMessageDate = if ($null -eq $lastMessage) { 'None' } else { $lastMessage }
+        $lastsentMessage = Get-EXOMailboxFolderStatistics -Identity $Mailbox.UserPrincipalName -IncludeOldestAndNewestItems -Folderscope 'SentItems' |
+            Sort-Object -Property NewestItemReceivedDate -Descending |
+                Select-Object -ExpandProperty NewestItemReceivedDate -First 1
+        $lastsentMessageDate = if ($null -eq $lastsentMessage) { 'None' } else { $lastsentMessage }
     }
     catch {
-        $lastMessageDate = 'None|Error'
+        $lastsentMessageDate = 'None|Error'
+    }
+
+    # Get newest item in inbox
+    try {
+        $lastInboxMessage = Get-EXOMailboxFolderStatistics -Identity $Mailbox.UserPrincipalName -IncludeOldestAndNewestItems -Folderscope 'Inbox' |
+            Sort-Object -Property NewestItemReceivedDate -Descending |
+                Select-Object -ExpandProperty NewestItemReceivedDate -First 1 
+        $lastInboxMessageDate = if ($null -eq $lastInboxMessage) { 'None' } else { $lastInboxMessage }
+    }
+    catch {
+        $lastInboxMessageDate = 'None|Error'
     }
 
     # Get forwards on the mailbox
@@ -160,14 +173,15 @@ function Get-MailboxDetails {
     }
 
     [PSCustomObject]@{
-        MailboxName         = $Mailbox.DisplayName
-        MailboxEmailAddress = $Mailbox.PrimarySmtpAddress
-        ForwardingAddress   = $forwardSummary
-        LastLogon           = $lastLogonTime
-        LastMessageTime     = $lastMessageDate
-        Manager             = $manager
-        FullAccessFirst3    = $permissions
-        MailboxSizeGB       = $mailboxSizeGB
+        MailboxName             = $Mailbox.DisplayName
+        MailboxEmailAddress     = $Mailbox.PrimarySmtpAddress
+        ForwardingAddress       = $forwardSummary
+        LastLogon               = $lastLogonTime
+        LastSentMessageTime     = $lastsentMessageDate
+        LastReceivedMessageTime = $lastInboxMessageDate
+        Manager                 = $manager
+        FullAccessFirst3        = $permissions
+        MailboxSizeGB           = $mailboxSizeGB
     }
 }
 
@@ -180,7 +194,7 @@ function Export-MailboxDetails {
     if ($Sort) {
         $Details = $Details | Sort-Object MailboxSizeGB -Descending
     }
-    $Details | Export-Csv -Path $Path -NoTypeInformation -Force
+    $Details | Export-Csv -Path $Path -NoTypeInformation -Force -Encoding utf8BOM
 }
 
 # Main script logic
