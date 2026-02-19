@@ -131,7 +131,7 @@ function Get-MailboxDetails {
 
         $ruleRecipients = @()
 
-        $rules = Get-InboxRule -Mailbox $Mailbox -ErrorAction SilentlyContinue |
+        $rules = Get-InboxRule -Mailbox $Mailbox -ErrorAction SilentlyContinue -WarningAction SilentlyContinue |
             Where-Object { $_.ForwardTo -or $_.ForwardAsAttachmentTo -or $_.RedirectTo }
 
         foreach ($r in $rules) {
@@ -140,22 +140,18 @@ function Get-MailboxDetails {
                 if ($recips) {
                     foreach ($recip in $recips) {
                         # Normalize recipient display to something useful (SMTP if available)
-                        $asText = if ($recip -is [string]) {
-                            $recip
+                         $asText = [string]$recip
+                        
+                        # Try to extract SMTP address first
+                        if ($asText -match '\[SMTP:([^\]]+)\]') {
+                            $asText = $matches[1]
                         }
-                        elseif ($recip.PSObject.Properties.Match('Address').Count) {
-                            $recip.Address
+                        # If no SMTP, extract display name from quotes
+                        elseif ($asText -match '"([^"]+)"') {
+                            $asText = $matches[1]
                         }
-                        elseif ($recip.PSObject.Properties.Match('PrimarySmtpAddress').Count) {
-                            $recip.PrimarySmtpAddress
-                        }
-                        elseif ($recip.PSObject.Properties.Match('Name').Count) {
-                            $recip.Name
-                        }
-                        else {
-                            [string]$recip
-                        }
-                        $ruleRecipients += "$t :`t$asText"
+                        # Otherwise use the whole string
+                        $ruleRecipients += "$t`: $asText"
                     }
                 }
             }
@@ -163,9 +159,9 @@ function Get-MailboxDetails {
 
         $forwardSummary =
         if (-not $server -and -not $ruleRecipients) { 'None' }
-        elseif ($server -and -not $ruleRecipients) { "Server:`t$server" }
-        elseif (-not $server -and $ruleRecipients) { ($ruleRecipients -join '; ') }
-        else { "Server:`t$server; " + ($ruleRecipients -join '; ') }
+        elseif ($server -and -not $ruleRecipients) { "Server: $server" }
+        elseif (-not $server -and $ruleRecipients) { ($ruleRecipients -join ', ') }
+        else { "Server: $server; " + ($ruleRecipients -join ', ') }
 
     }
     catch {
@@ -194,7 +190,7 @@ function Export-MailboxDetails {
     if ($Sort) {
         $Details = $Details | Sort-Object MailboxSizeGB -Descending
     }
-    $Details | Export-Csv -Path $Path -NoTypeInformation -Force -Encoding utf8BOM
+    $Details | Export-Csv -Path $Path -Delimiter ';' -NoTypeInformation -Force -Encoding utf8BOM
 }
 
 # Main script logic
