@@ -13,15 +13,15 @@ Specifies the file path where the CSV report will be saved. Defaults to "MFARepo
 A switch parameter that, when specified, allows overwriting the existing CSV file at the specified ExportPath.
 
 .EXAMPLE
-.\Get-MgBetaReportAuthenticationMethodUser.ps1
+.\Get-UserAuthMethods.ps1
 Generates the MFA report and saves it to "MFAReport.csv" in the script's directory.
 
 .EXAMPLE
-.\Get-MgBetaReportAuthenticationMethodUser.ps1 -ExportPath "C:\Reports\MFAReport.csv"
+.\Get-UserAuthMethods.ps1 -ExportPath "C:\Reports\MFAReport.csv"
 Generates the MFA report and saves it to "C:\Reports\MFAReport.csv".
 
 .EXAMPLE
-.\Get-MgBetaReportAuthenticationMethodUser.ps1 -ExportPath "C:\Reports\MFAReport.csv" -Overwrite
+.\Get-UserAuthMethods.ps1 -ExportPath "C:\Reports\MFAReport.csv" -Overwrite
 Generates the MFA report and overwrites the existing file at "C:\Reports\MFAReport.csv".
 
 .NOTES
